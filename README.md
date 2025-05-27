@@ -5,8 +5,8 @@ This UserScript renders Cursor Rules (*.mdc) markdown on GitHub into actual Mark
 ## Installation
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) or [Greasemonkey](https://www.greasespot.net/)
-2. Paste this script's contents into a new UserScript in Tampermonkey
-3. Enjoy GitHub rendering Cursor Rules as Markdown
+2. Install the script from [GreasyFork](https://greasyfork.org/en/scripts/537391-cursor-rule-markdown-renderer-for-github)
+3. Enjoy GitHub rendering Cursor Rules as Markdown!
 
 ## Notes
 
