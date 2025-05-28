@@ -469,17 +469,26 @@
 	 */
 	function waitForTextareaAndObserve() {
 		let attempts = 0;
-		const maxAttempts = 100; // 10 seconds at 100ms intervals
+		const maxAttempts = 150; // 15 seconds at 100ms intervals (longer for hard page loads)
 
 		const checkInterval = setInterval(() => {
 			attempts++;
+			DEBUG && attempts % 10 === 0 && console.log('[mdc-render] Still waiting for textarea, attempt:', attempts);
 
 			if (observeContentChanges()) {
 				clearInterval(checkInterval);
-				DEBUG && console.log('[mdc-render] Set up content observation');
+				DEBUG && console.log('[mdc-render] Set up content observation after', attempts, 'attempts');
 			} else if (attempts >= maxAttempts) {
 				clearInterval(checkInterval);
-				DEBUG && console.log('[mdc-render] Timeout waiting for textarea');
+				DEBUG && console.log('[mdc-render] Timeout waiting for textarea after', attempts, 'attempts');
+				
+				// Final debug: check what elements are actually available
+				const section = document.querySelector(CONTENT_SECTION);
+				const allTextareas = document.querySelectorAll('textarea');
+				DEBUG && console.log('[mdc-render] Debug - Section found:', !!section, 'Total textareas:', allTextareas.length);
+				allTextareas.forEach((ta, i) => {
+					DEBUG && console.log(`[mdc-render] Textarea ${i}:`, ta.id, ta.className, 'content length:', ta.textContent?.length || 0);
+				});
 			}
 		}, 100);
 	}
@@ -515,9 +524,15 @@
 				contentObserver = null;
 			}
 			
-			// Set lastContent to the old content so we only render when we get genuinely new content
-			lastContent = oldContent;
-			DEBUG && console.log('[mdc-render] Set lastContent to old content to avoid stale rendering');
+			// Only set lastContent to old content if it's not empty (to avoid hard page load issues)
+			// On hard page loads, the textarea might be empty initially and get populated later
+			if (oldContent && oldContent.trim().length > 0) {
+				lastContent = oldContent;
+				DEBUG && console.log('[mdc-render] Set lastContent to old content to avoid stale rendering');
+			} else {
+				lastContent = '';
+				DEBUG && console.log('[mdc-render] Reset lastContent for fresh page load');
+			}
 			
 			waitForTextareaAndObserve();
 		} else {
@@ -534,16 +549,36 @@
 		}
 	}
 
-	// Initialize: handle current page and set up URL change detection
-	let currentUrl = location.href;
-	handleUrlChange();
-
-	// Monitor for URL changes in GitHub's SPA
-	new MutationObserver(() => {
-		if (location.href !== currentUrl) {
-			currentUrl = location.href;
+	/**
+	 * Initializes the script, handling both hard page loads and SPA navigation.
+	 */
+	function initialize() {
+		let currentUrl = location.href;
+		
+		// Handle initial page load (hard navigation)
+		if (document.readyState === 'loading') {
+			// Page is still loading, wait for it to be ready
+			document.addEventListener('DOMContentLoaded', () => {
+				DEBUG && console.log('[mdc-render] DOMContentLoaded - handling initial page');
+				handleUrlChange();
+			});
+		} else {
+			// Page is already loaded, handle immediately
+			DEBUG && console.log('[mdc-render] Page already loaded - handling initial page');
 			handleUrlChange();
 		}
-	}).observe(document, { subtree: true, childList: true });
+
+		// Monitor for URL changes in GitHub's SPA
+		new MutationObserver(() => {
+			if (location.href !== currentUrl) {
+				currentUrl = location.href;
+				DEBUG && console.log('[mdc-render] SPA navigation detected:', currentUrl);
+				handleUrlChange();
+			}
+		}).observe(document, { subtree: true, childList: true });
+	}
+
+	// Initialize the script
+	initialize();
 
 })();
