@@ -16,17 +16,15 @@
 	const DEBUG = true;
 	const MDC_FILE_REGEX = /^https:\/\/github\.com\/.*\.mdc$/;
 	const YAML_FRONTMATTER_REGEX = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
-	
-	// Toggle button labels
 	const RENDERED_LABEL = 'MD🠯';
 	const SOURCE_LABEL = '.mdc';
+	const MAX_RENDER_ATTEMPTS = 50;
+	const RENDER_RETRY_INTERVAL = 100;
 
-	// Simple state
 	let currentUrl = location.href;
 	let isActive = false;
 	let textareaObserver = null;
 
-	// Inject basic styles
 	GM_addStyle(`
 		.markdown-body {
 			box-sizing: border-box;
@@ -38,6 +36,11 @@
 		}
 	`);
 
+	/**
+	 * Processes MDC content by extracting YAML frontmatter and converting it to a code block
+	 * @param {string} content - Raw MDC file content
+	 * @returns {string} Processed content with YAML frontmatter as code block
+	 */
 	function processContent(content) {
 		const match = content.match(YAML_FRONTMATTER_REGEX);
 		if (match) {
@@ -47,8 +50,44 @@
 		return content;
 	}
 
+	/**
+	 * Creates a button element with GitHub's styling
+	 * @param {string} label - Button text content
+	 * @param {string} mode - View mode ('rendered' or 'source')
+	 * @param {boolean} isSelected - Whether button should be in selected state
+	 * @returns {HTMLLIElement} Complete button list item element
+	 */
+	function createButton(label, mode, isSelected = false) {
+		const li = document.createElement('li');
+		li.className = `SegmentedControl-item${isSelected ? ' SegmentedControl-item--selected' : ''}`;
+		li.setAttribute('role', 'listitem');
+		
+		const button = document.createElement('button');
+		button.setAttribute('aria-current', isSelected.toString());
+		button.setAttribute('type', 'button');
+		button.setAttribute('data-view-component', 'true');
+		button.className = 'Button--invisible Button--small Button Button--invisible-noVisuals';
+		button.onclick = () => setViewMode(mode);
+		
+		const content = document.createElement('span');
+		content.className = 'Button-content';
+		const labelSpan = document.createElement('span');
+		labelSpan.className = 'Button-label';
+		labelSpan.setAttribute('data-content', label);
+		labelSpan.textContent = label;
+		
+		content.appendChild(labelSpan);
+		button.appendChild(content);
+		li.appendChild(button);
+		
+		return li;
+	}
+
+	/**
+	 * Creates a GitHub-styled segmented control for toggling between rendered and source views
+	 * @returns {HTMLDivElement} Complete toggle button control
+	 */
 	function createToggleButton() {
-		// Create segmented control container
 		const container = document.createElement('div');
 		container.className = 'mdc-segmented-control';
 		
@@ -61,94 +100,46 @@
 		ul.setAttribute('data-view-component', 'true');
 		ul.className = 'SegmentedControl--small SegmentedControl';
 		
-		// Create "MD↓" button (rendered view)
-		const renderedLi = document.createElement('li');
-		renderedLi.className = 'SegmentedControl-item SegmentedControl-item--selected';
-		renderedLi.setAttribute('role', 'listitem');
+		ul.appendChild(createButton(RENDERED_LABEL, 'rendered', true));
+		ul.appendChild(createButton(SOURCE_LABEL, 'source', false));
 		
-		const renderedButton = document.createElement('button');
-		renderedButton.setAttribute('aria-current', 'true');
-		renderedButton.setAttribute('type', 'button');
-		renderedButton.setAttribute('data-view-component', 'true');
-		renderedButton.className = 'Button--invisible Button--small Button Button--invisible-noVisuals';
-		renderedButton.onclick = () => setViewMode('rendered');
-		
-		const renderedContent = document.createElement('span');
-		renderedContent.className = 'Button-content';
-		const renderedLabel = document.createElement('span');
-		renderedLabel.className = 'Button-label';
-		renderedLabel.setAttribute('data-content', RENDERED_LABEL);
-		renderedLabel.textContent = RENDERED_LABEL;
-		
-		renderedContent.appendChild(renderedLabel);
-		renderedButton.appendChild(renderedContent);
-		renderedLi.appendChild(renderedButton);
-		
-		// Create ".mdc" button (source view)
-		const sourceLi = document.createElement('li');
-		sourceLi.className = 'SegmentedControl-item';
-		sourceLi.setAttribute('role', 'listitem');
-		
-		const sourceButton = document.createElement('button');
-		sourceButton.setAttribute('aria-current', 'false');
-		sourceButton.setAttribute('type', 'button');
-		sourceButton.setAttribute('data-view-component', 'true');
-		sourceButton.className = 'Button--invisible Button--small Button Button--invisible-noVisuals';
-		sourceButton.onclick = () => setViewMode('source');
-		
-		const sourceContent = document.createElement('span');
-		sourceContent.className = 'Button-content';
-		const sourceLabel = document.createElement('span');
-		sourceLabel.className = 'Button-label';
-		sourceLabel.setAttribute('data-content', SOURCE_LABEL);
-		sourceLabel.textContent = SOURCE_LABEL;
-		
-		sourceContent.appendChild(sourceLabel);
-		sourceButton.appendChild(sourceContent);
-		sourceLi.appendChild(sourceButton);
-		
-		// Assemble the control
-		ul.appendChild(renderedLi);
-		ul.appendChild(sourceLi);
 		segmentedControl.appendChild(ul);
 		container.appendChild(segmentedControl);
 		
 		return container;
 	}
 
+	/**
+	 * Switches between rendered markdown and source code views
+	 * @param {'rendered'|'source'} mode - View mode to activate
+	 */
 	function setViewMode(mode) {
 		const rendered = document.getElementById('mdc-rendered');
 		const original = document.querySelector('#read-only-cursor-text-area')?.closest('section');
-		const renderedLi = document.querySelector('.mdc-segmented-control .SegmentedControl-item:first-child');
-		const sourceLi = document.querySelector('.mdc-segmented-control .SegmentedControl-item:last-child');
-		const renderedButton = renderedLi?.querySelector('button');
-		const sourceButton = sourceLi?.querySelector('button');
+		const buttons = document.querySelectorAll('.mdc-segmented-control .SegmentedControl-item');
+		
+		if (!rendered || !original || buttons.length !== 2) return;
 
-		if (!rendered || !original || !renderedLi || !sourceLi) return;
+		const [renderedItem, sourceItem] = buttons;
+		const renderedButton = renderedItem.querySelector('button');
+		const sourceButton = sourceItem.querySelector('button');
 
-		if (mode === 'rendered') {
-			// Show rendered markdown
-			rendered.style.display = 'block';
-			original.style.display = 'none';
-			
-			// Update button states
-			renderedLi.classList.add('SegmentedControl-item--selected');
-			sourceLi.classList.remove('SegmentedControl-item--selected');
-			if (renderedButton) renderedButton.setAttribute('aria-current', 'true');
-			if (sourceButton) sourceButton.setAttribute('aria-current', 'false');
-		} else {
-			// Show original source
-			rendered.style.display = 'none';
-			original.style.display = 'block';
-			
-			// Update button states
-			renderedLi.classList.remove('SegmentedControl-item--selected');
-			sourceLi.classList.add('SegmentedControl-item--selected');
-			if (renderedButton) renderedButton.setAttribute('aria-current', 'false');
-			if (sourceButton) sourceButton.setAttribute('aria-current', 'true');
-		}
+		const isRenderedMode = mode === 'rendered';
+		
+		rendered.style.display = isRenderedMode ? 'block' : 'none';
+		original.style.display = isRenderedMode ? 'none' : 'block';
+		
+		renderedItem.classList.toggle('SegmentedControl-item--selected', isRenderedMode);
+		sourceItem.classList.toggle('SegmentedControl-item--selected', !isRenderedMode);
+		
+		if (renderedButton) renderedButton.setAttribute('aria-current', isRenderedMode.toString());
+		if (sourceButton) sourceButton.setAttribute('aria-current', (!isRenderedMode).toString());
 	}
 
+	/**
+	 * Renders MDC content as HTML and inserts it into the page
+	 * @returns {boolean} True if rendering was successful, false otherwise
+	 */
 	function renderMDC() {
 		const textarea = document.querySelector('#read-only-cursor-text-area');
 		if (!textarea) {
@@ -156,58 +147,53 @@
 			return false;
 		}
 
-		const content = textarea.textContent;
-		if (!content || content.trim().length === 0) {
+		const content = textarea.textContent?.trim();
+		if (!content) {
 			DEBUG && console.log('[mdc-lite] No content in textarea');
 			return false;
 		}
 
-		// Remove existing rendered content
 		const existing = document.getElementById('mdc-rendered');
-		if (existing) existing.remove();
+		existing?.remove();
 
-		// Process and render content
 		const processedContent = processContent(content);
 		const rendered = document.createElement('div');
 		rendered.id = 'mdc-rendered';
 		rendered.className = 'markdown-body';
 		rendered.innerHTML = marked.parse(processedContent);
 
-		// Apply syntax highlighting
 		rendered.querySelectorAll('pre code').forEach(block => {
 			hljs.highlightElement(block);
 		});
 
-		// Find insertion point and insert
 		const section = textarea.closest('section');
-		if (section) {
-			section.parentElement.insertBefore(rendered, section);
-			section.style.display = 'none'; // Hide original
-
-			// Add toggle control to toolbar
-			const toolbar = document.querySelector('.react-blob-header-edit-and-raw-actions');
-			if (toolbar && !toolbar.querySelector('.mdc-segmented-control')) {
-				toolbar.insertBefore(createToggleButton(), toolbar.firstChild);
-			}
-
-			DEBUG && console.log('[mdc-lite] Successfully rendered MDC');
-			return true;
+		if (!section?.parentElement) {
+			DEBUG && console.log('[mdc-lite] Could not find section to insert rendered content');
+			return false;
 		}
 
-		DEBUG && console.log('[mdc-lite] Could not find section to insert rendered content');
-		return false;
+		section.parentElement.insertBefore(rendered, section);
+		section.style.display = 'none';
+
+		const toolbar = document.querySelector('.react-blob-header-edit-and-raw-actions');
+		if (toolbar && !toolbar.querySelector('.mdc-segmented-control')) {
+			toolbar.insertBefore(createToggleButton(), toolbar.firstChild);
+		}
+
+		DEBUG && console.log('[mdc-lite] Successfully rendered MDC');
+		return true;
 	}
 
+	/**
+	 * Removes all MDC-related elements and restores original state
+	 */
 	function cleanup() {
-		const rendered = document.getElementById('mdc-rendered');
-		const control = document.querySelector('.mdc-segmented-control');
+		document.getElementById('mdc-rendered')?.remove();
+		document.querySelector('.mdc-segmented-control')?.remove();
+		
 		const original = document.querySelector('#read-only-cursor-text-area')?.closest('section');
-
-		if (rendered) rendered.remove();
-		if (control) control.remove();
 		if (original) original.style.display = 'block';
 
-		// Clean up textarea observer
 		if (textareaObserver) {
 			textareaObserver.disconnect();
 			textareaObserver = null;
@@ -217,16 +203,16 @@
 		DEBUG && console.log('[mdc-lite] Cleaned up');
 	}
 
+	/**
+	 * Sets up a MutationObserver to watch for textarea content changes and re-render accordingly
+	 * @returns {boolean} True if observer was successfully set up, false otherwise
+	 */
 	function setupTextareaObserver() {
 		const textarea = document.querySelector('#read-only-cursor-text-area');
 		if (!textarea) return false;
 
-		// Clean up any existing observer
-		if (textareaObserver) {
-			textareaObserver.disconnect();
-		}
+		textareaObserver?.disconnect();
 
-		// Set up new observer
 		textareaObserver = new MutationObserver(() => {
 			DEBUG && console.log('[mdc-lite] Textarea content changed, re-rendering');
 			renderMDC();
@@ -242,49 +228,47 @@
 		return true;
 	}
 
+	/**
+	 * Handles page navigation changes, activating or deactivating MDC rendering based on URL
+	 */
 	function handlePageChange() {
 		if (MDC_FILE_REGEX.test(location.href)) {
 			if (!isActive) {
 				DEBUG && console.log('[mdc-lite] MDC file detected:', location.href);
 				isActive = true;
 				
-				// Try to render immediately (for hard page loads)
 				if (renderMDC()) {
-					// Success - also set up observer for future changes
 					setupTextareaObserver();
 				} else {
-					// Content not ready yet (hard page load) - wait for textarea and content
+					// Content not ready yet - retry with exponential backoff would be better, but keeping simple
 					let attempts = 0;
-					const maxAttempts = 50; // 5 seconds
 					
 					const interval = setInterval(() => {
 						attempts++;
 						if (renderMDC()) {
 							clearInterval(interval);
-							setupTextareaObserver(); // Set up observer after successful render
-						} else if (attempts >= maxAttempts) {
+							setupTextareaObserver();
+						} else if (attempts >= MAX_RENDER_ATTEMPTS) {
 							clearInterval(interval);
 							DEBUG && console.log('[mdc-lite] Timeout waiting for content');
 						}
-					}, 100);
+					}, RENDER_RETRY_INTERVAL);
 				}
 			} else {
-				// Already active, just set up observer (SPA navigation case)
 				setupTextareaObserver();
 			}
-		} else {
-			if (isActive) {
-				cleanup();
-			}
+		} else if (isActive) {
+			cleanup();
 		}
 	}
 
-	// Initialize
+	/**
+	 * Initializes the userscript by setting up page change detection and handling the current page
+	 */
 	function init() {
-		// Handle current page
 		handlePageChange();
 
-		// Monitor for navigation changes
+		// Monitor for SPA navigation changes
 		new MutationObserver(() => {
 			if (location.href !== currentUrl) {
 				currentUrl = location.href;
@@ -296,7 +280,6 @@
 		DEBUG && console.log('[mdc-lite] Initialized');
 	}
 
-	// Start when DOM is ready
 	if (document.readyState === 'loading') {
 		document.addEventListener('DOMContentLoaded', init);
 	} else {
