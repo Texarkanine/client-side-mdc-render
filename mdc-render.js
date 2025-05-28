@@ -15,17 +15,23 @@
 	'use strict';
 
 	// Set to true to enable debug logging
-	const DEBUG = false;
+	const DEBUG = true;
 
 	// GitHub uses these specific selectors for file content display
 	const CONTENT_SECTION = 'section';
 	const MARKDOWN_SOURCE = '#read-only-cursor-text-area';
+	const GITHUB_POSITIONER = '#highlighted-line-menu-positioner';
 
 	// Only process .mdc files on GitHub
 	const MDC_FILE_REGEX = /^https:\/\/github\.com\/.*\.mdc$/;
 
 	// Cursor rules have YAML frontmatter that needs special handling
 	const YAML_FRONTMATTER_REGEX = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
+
+	// Toggle button constants
+	const TOGGLE_BUTTON_ID = 'mdc-toggle-render-btn';
+	const TOGGLE_BUTTON_GROUP_ID = 'mdc-toggle-button-group';
+	const MARKDOWN_CONTAINER_ID = 'mdc-rendered-markdown';
 
 	// GitHub-compatible markdown styles using GitHub's CSS variables for theme compatibility
 	const MARKDOWN_CSS = `
@@ -40,6 +46,9 @@
 	`;
 
 	let cssInjected = false;
+	let originalContainer = null;
+	let originalDisplayValue = null; // Store the original display value
+	let isRendered = true; // Default state: custom rendering visible
 
 	/**
 	 * Processes .mdc content by wrapping YAML frontmatter in code blocks.
@@ -69,8 +78,250 @@
 	}
 
 	/**
-	 * Renders the markdown content by replacing the section content.
-	 * Preserves the original textarea as hidden for potential future reference.
+	 * Finds and stores the original GitHub container that should be preserved.
+	 * Looks for the #highlighted-line-menu-positioner element within the section.
+	 */
+	function findOriginalContainer() {
+		if (originalContainer) return originalContainer;
+
+		const positioner = document.querySelector(GITHUB_POSITIONER);
+		if (positioner) {
+			originalContainer = positioner;
+			DEBUG && console.log('[mdc-render] Found original container via highlighted-line-menu-positioner:', positioner.id, positioner.innerHTML.length + ' chars');
+			return originalContainer;
+		}
+
+		// Fallback: look for the section's first child that's not our markdown
+		const section = document.querySelector(CONTENT_SECTION);
+		if (section) {
+			const children = Array.from(section.children);
+			for (const child of children) {
+				if (child.id !== MARKDOWN_CONTAINER_ID && child.id !== TOGGLE_BUTTON_ID) {
+					originalContainer = child;
+					DEBUG && console.log('[mdc-render] Found original container via fallback method');
+					return originalContainer;
+				}
+			}
+		}
+
+		DEBUG && console.warn('[mdc-render] Could not find original container');
+		return null;
+	}
+
+	/**
+	 * Creates the toggle button using GitHub's existing CSS classes.
+	 * Copies classes from existing buttons to maintain visual consistency.
+	 */
+	function createToggleButton() {
+		// Find an existing button to copy classes from
+		const rawButton = document.querySelector('[data-testid="raw-button"]');
+		const copyButton = document.querySelector('[data-testid="copy-raw-button"]');
+		const referenceButton = rawButton || copyButton;
+
+		if (!referenceButton) {
+			console.warn('[mdc-render] Could not find reference button for styling');
+			return null;
+		}
+
+		// Create button group wrapper
+		const buttonGroup = document.createElement('div');
+		buttonGroup.id = TOGGLE_BUTTON_GROUP_ID;
+		buttonGroup.style.display = 'inline-flex';
+		buttonGroup.style.marginRight = '8px';
+
+		// Create the toggle button
+		const button = document.createElement('button');
+		button.id = TOGGLE_BUTTON_ID;
+		button.textContent = 'M↓';
+		button.setAttribute('aria-label', 'Toggle rendered markdown');
+		button.setAttribute('aria-pressed', 'true'); // Default to active state
+		button.setAttribute('type', 'button');
+		button.setAttribute('data-testid', 'mdc-toggle-button');
+
+		// Copy classes from reference button
+		if (referenceButton.className) {
+			button.className = referenceButton.className;
+		}
+
+		// Copy data attributes that affect styling
+		const dataToCopy = ['data-loading', 'data-no-visuals', 'data-size'];
+		dataToCopy.forEach(attr => {
+			const value = referenceButton.getAttribute(attr);
+			if (value !== null) {
+				button.setAttribute(attr, value);
+			}
+		});
+
+		// Set initial variant for active state
+		button.setAttribute('data-variant', 'default'); // Active state
+
+		button.addEventListener('click', toggleRenderState);
+
+		buttonGroup.appendChild(button);
+		return buttonGroup;
+	}
+
+	/**
+	 * Finds the toolbar where the toggle button should be inserted.
+	 * Looks for the container that holds the Raw button and related actions.
+	 */
+	function findToolbar() {
+		// Look for the Raw button first, then find its container
+		const rawButton = document.querySelector('[data-testid="raw-button"]');
+		if (rawButton) {
+			// Find the toolbar container that holds the Raw button
+			let container = rawButton.closest('.react-blob-header-edit-and-raw-actions');
+			if (container) {
+				return container.parentElement; // Get the parent that contains all button groups
+			}
+		}
+
+		// Fallback: look for the stable class name
+		const toolbar = document.querySelector('.react-blob-header-edit-and-raw-actions');
+		if (toolbar) {
+			return toolbar.parentElement;
+		}
+
+		DEBUG && console.warn('[mdc-render] Could not find toolbar for toggle button');
+		return null;
+	}
+
+	/**
+	 * Injects the toggle button into the GitHub toolbar.
+	 * Places it before the Raw button group.
+	 */
+	function injectToggleButton() {
+		// Check if button already exists
+		if (document.getElementById(TOGGLE_BUTTON_ID)) {
+			DEBUG && console.log('[mdc-render] Toggle button already exists');
+			return true;
+		}
+
+		// Only inject if we're rendering a .mdc file
+		if (!document.getElementById(MARKDOWN_CONTAINER_ID)) {
+			DEBUG && console.log('[mdc-render] No markdown body found, skipping toggle button injection');
+			return false;
+		}
+
+		const toolbar = findToolbar();
+		if (!toolbar) {
+			console.warn('[mdc-render] Could not find toolbar for toggle button');
+			return false;
+		}
+
+		// Find the Raw button group to insert before it
+		const rawButtonGroup = toolbar.querySelector('.react-blob-header-edit-and-raw-actions');
+		if (!rawButtonGroup) {
+			console.warn('[mdc-render] Could not find Raw button group');
+			return false;
+		}
+
+		const toggleButtonGroup = createToggleButton();
+		if (!toggleButtonGroup) {
+			return false;
+		}
+
+		toolbar.insertBefore(toggleButtonGroup, rawButtonGroup);
+
+		DEBUG && console.log('[mdc-render] Toggle button injected successfully');
+		return true;
+	}
+
+	/**
+	 * Toggles between rendered markdown and original GitHub view.
+	 */
+	function toggleRenderState() {
+		isRendered = !isRendered;
+		setRenderState(isRendered);
+		syncToggleButtonState(); // Ensure button state stays in sync
+		DEBUG && console.log('[mdc-render] Toggled to state:', isRendered ? 'rendered' : 'source');
+	}
+
+	/**
+	 * Sets the render state and updates UI accordingly.
+	 */
+	function setRenderState(rendered) {
+		const markdownBody = document.getElementById(MARKDOWN_CONTAINER_ID);
+		const toggleButton = document.getElementById(TOGGLE_BUTTON_ID);
+		const original = findOriginalContainer();
+
+		if (!markdownBody || !toggleButton) {
+			DEBUG && console.warn('[mdc-render] Missing elements for state change. Markdown:', !!markdownBody, 'Button:', !!toggleButton);
+			return;
+		}
+
+		DEBUG && console.log('[mdc-render] Setting render state to:', rendered, 'Markdown in DOM:', markdownBody.parentElement ? 'yes' : 'no');
+
+		if (rendered) {
+			// Show rendered markdown, hide original
+			markdownBody.style.display = 'block';
+			if (original) {
+				original.style.display = 'none';
+			}
+			toggleButton.setAttribute('aria-pressed', 'true');
+			toggleButton.setAttribute('data-variant', 'default'); // Active state
+			DEBUG && console.log('[mdc-render] Showing markdown, hiding original. Markdown visible:', markdownBody.offsetHeight > 0);
+		} else {
+			// Show original, hide rendered markdown
+			markdownBody.style.display = 'none';
+			if (original) {
+				// Restore the original display value
+				original.style.display = originalDisplayValue || 'block';
+			}
+			toggleButton.setAttribute('aria-pressed', 'false');
+			toggleButton.setAttribute('data-variant', 'invisible'); // Inactive state
+			DEBUG && console.log('[mdc-render] Showing original, hiding markdown. Restored display:', originalDisplayValue || 'block', 'Original visible:', original ? original.offsetHeight > 0 : 'no original');
+		}
+
+		isRendered = rendered;
+		DEBUG && console.log('[mdc-render] Set render state to:', rendered ? 'rendered' : 'source');
+	}
+
+	/**
+	 * Removes the toggle button (for SPA navigation away from .mdc files).
+	 */
+	function removeToggleButton() {
+		const buttonGroup = document.getElementById(TOGGLE_BUTTON_GROUP_ID);
+		if (buttonGroup) {
+			buttonGroup.remove();
+			DEBUG && console.log('[mdc-render] Toggle button removed');
+		}
+	}
+
+	/**
+	 * Ensures the toggle button state matches the actual render state.
+	 */
+	function syncToggleButtonState() {
+		const toggleButton = document.getElementById(TOGGLE_BUTTON_ID);
+		if (toggleButton) {
+			toggleButton.setAttribute('aria-pressed', isRendered ? 'true' : 'false');
+			toggleButton.setAttribute('data-variant', isRendered ? 'default' : 'invisible');
+			DEBUG && console.log('[mdc-render] Synced toggle button state to:', isRendered);
+		}
+	}
+
+	/**
+	 * Restores the original container visibility and removes our markdown when leaving .mdc files.
+	 */
+	function restoreOriginalContainer() {
+		const original = findOriginalContainer();
+		if (original) {
+			// Restore the original display value
+			original.style.display = originalDisplayValue || 'block';
+			DEBUG && console.log('[mdc-render] Original container restored with display:', originalDisplayValue || 'block');
+		}
+		
+		// Remove our rendered markdown
+		const markdownBody = document.getElementById(MARKDOWN_CONTAINER_ID);
+		if (markdownBody) {
+			markdownBody.remove();
+			DEBUG && console.log('[mdc-render] Rendered markdown removed');
+		}
+	}
+
+	/**
+	 * Renders the markdown content by adding it to the section alongside the original content.
+	 * Preserves the original DOM structure and toggles visibility instead of replacing content.
 	 */
 	function renderMarkdown() {
 		const section = document.querySelector(CONTENT_SECTION);
@@ -85,9 +336,26 @@
 			return false;
 		}
 
+		// Check if we've already rendered this content (avoid duplicate rendering)
+		const existingMarkdown = document.getElementById(MARKDOWN_CONTAINER_ID);
+		if (existingMarkdown && lastContent === rawContent) {
+			DEBUG && console.log('[mdc-render] Markdown already rendered for this content');
+			return true;
+		}
+		
+		// If content changed, remove existing markdown
+		if (existingMarkdown) {
+			existingMarkdown.remove();
+			DEBUG && console.log('[mdc-render] Removed existing markdown for content update');
+		}
+
+		// Find and store the original container before adding our content
+		findOriginalContainer();
+
 		// Process content and render markdown
 		const processedContent = processContent(rawContent);
 		const markdownDiv = document.createElement('div');
+		markdownDiv.id = MARKDOWN_CONTAINER_ID;
 		markdownDiv.className = 'markdown-body';
 		markdownDiv.innerHTML = marked.parse(processedContent);
 
@@ -97,13 +365,40 @@
 		});
 		DEBUG && console.log('[mdc-render] highlight.js applied to code blocks');
 
-		// Replace section content while preserving the original textarea
-		section.innerHTML = '';
-		textarea.style.display = 'none'; // Keep textarea but hide it
-		section.appendChild(textarea);
-		section.appendChild(markdownDiv);
+		// Insert our rendered markdown as a sibling to the positioner
+		const positioner = document.querySelector(GITHUB_POSITIONER);
+		if (positioner && positioner.parentElement) {
+			// Insert our markdown after the positioner
+			positioner.parentElement.insertBefore(markdownDiv, positioner.nextSibling);
+			DEBUG && console.log('[mdc-render] Inserted markdown as sibling to positioner. Parent:', positioner.parentElement.tagName, 'Markdown ID:', markdownDiv.id);
+		} else {
+			// Fallback: append to section if positioner not found
+			section.appendChild(markdownDiv);
+			DEBUG && console.log('[mdc-render] Fallback: appended markdown to section. Markdown ID:', markdownDiv.id);
+		}
+
+		// Hide the original container initially (we start in "rendered" mode)
+		if (originalContainer) {
+			// Store the original display value before hiding
+			const computedStyle = window.getComputedStyle(originalContainer);
+			originalDisplayValue = computedStyle.display;
+			// If the original was already hidden, default to block
+			if (originalDisplayValue === 'none') {
+				originalDisplayValue = 'block';
+			}
+			originalContainer.style.display = 'none';
+			DEBUG && console.log('[mdc-render] Hidden original container:', originalContainer.id || originalContainer.tagName, 'Original display:', originalDisplayValue);
+		}
 
 		injectStyles();
+		
+		// Inject toggle button after rendering
+		setTimeout(() => {
+			injectToggleButton();
+			setRenderState(true); // Ensure we start in rendered state
+			syncToggleButtonState(); // Ensure button state is correct
+		}, 100);
+
 		return true;
 	}
 
@@ -126,10 +421,11 @@
 			return false;
 		}
 
-		// Check if content is different from last render
+		// Check if content is different from last render and render immediately
 		const currentContent = textarea.textContent;
 		if (currentContent && currentContent !== lastContent) {
 			lastContent = currentContent;
+			DEBUG && console.log('[mdc-render] Found new content, rendering immediately');
 			if (renderMarkdown()) {
 				DEBUG && console.log('[mdc-render] Successfully rendered markdown');
 			}
@@ -140,8 +436,19 @@
 			const newContent = textarea.textContent;
 			if (newContent && newContent !== lastContent) {
 				lastContent = newContent;
+				DEBUG && console.log('[mdc-render] Content changed via observer, re-rendering');
+				// Reset state when content changes
+				originalContainer = null;
+				originalDisplayValue = null;
+				isRendered = true;
 				if (renderMarkdown()) {
 					DEBUG && console.log('[mdc-render] Content changed, re-rendered markdown');
+					// Re-inject toggle button and set proper state
+					setTimeout(() => {
+						injectToggleButton();
+						setRenderState(true);
+						syncToggleButtonState();
+					}, 100);
 				}
 			}
 		});
@@ -184,7 +491,46 @@
 	function handleUrlChange() {
 		if (MDC_FILE_REGEX.test(location.href)) {
 			DEBUG && console.log('[mdc-render] MDC file detected:', location.href);
+			
+			// Capture old content before cleanup to avoid rendering stale content
+			const oldTextarea = document.querySelector(MARKDOWN_SOURCE);
+			const oldContent = oldTextarea ? oldTextarea.textContent : '';
+			
+			// Clean up any existing state first
+			removeToggleButton();
+			const existingMarkdown = document.getElementById(MARKDOWN_CONTAINER_ID);
+			if (existingMarkdown) {
+				existingMarkdown.remove();
+				DEBUG && console.log('[mdc-render] Removed existing markdown from previous navigation');
+			}
+			
+			// Reset state for new .mdc file
+			originalContainer = null;
+			originalDisplayValue = null;
+			isRendered = true;
+			
+			// Clean up any existing observer
+			if (contentObserver) {
+				contentObserver.disconnect();
+				contentObserver = null;
+			}
+			
+			// Set lastContent to the old content so we only render when we get genuinely new content
+			lastContent = oldContent;
+			DEBUG && console.log('[mdc-render] Set lastContent to old content to avoid stale rendering');
+			
 			waitForTextareaAndObserve();
+		} else {
+			// Navigating away from .mdc file - clean up
+			removeToggleButton();
+			restoreOriginalContainer();
+			// Clean up observer
+			if (contentObserver) {
+				contentObserver.disconnect();
+				contentObserver = null;
+			}
+			lastContent = '';
+			DEBUG && console.log('[mdc-render] Navigated away from MDC file, cleaned up');
 		}
 	}
 
