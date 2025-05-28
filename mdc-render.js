@@ -91,15 +91,11 @@
 		markdownDiv.className = 'markdown-body';
 		markdownDiv.innerHTML = marked.parse(processedContent);
 
-		// Syntax highlight code blocks using highlight.js if available
-		if (typeof hljs !== 'undefined') {
-			markdownDiv.querySelectorAll('pre code[class^="language-"]').forEach(block => {
-				hljs.highlightElement(block);
-			});
-			DEBUG && console.log('[mdc-render] highlight.js applied to code blocks');
-		} else {
-			DEBUG && console.log('[mdc-render] highlight.js not available');
-		}
+		// Syntax highlight code blocks using highlight.js
+		markdownDiv.querySelectorAll('pre code[class^="language-"]').forEach(block => {
+			hljs.highlightElement(block);
+		});
+		DEBUG && console.log('[mdc-render] highlight.js applied to code blocks');
 
 		// Replace section content while preserving the original textarea
 		section.innerHTML = '';
