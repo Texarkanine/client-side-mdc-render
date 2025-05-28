@@ -61,25 +61,25 @@
 		const li = document.createElement('li');
 		li.className = `SegmentedControl-item${isSelected ? ' SegmentedControl-item--selected' : ''}`;
 		li.setAttribute('role', 'listitem');
-		
+
 		const button = document.createElement('button');
 		button.setAttribute('aria-current', isSelected.toString());
 		button.setAttribute('type', 'button');
 		button.setAttribute('data-view-component', 'true');
 		button.className = 'Button--invisible Button--small Button Button--invisible-noVisuals';
 		button.onclick = () => setViewMode(mode);
-		
+
 		const content = document.createElement('span');
 		content.className = 'Button-content';
 		const labelSpan = document.createElement('span');
 		labelSpan.className = 'Button-label';
 		labelSpan.setAttribute('data-content', label);
 		labelSpan.textContent = label;
-		
+
 		content.appendChild(labelSpan);
 		button.appendChild(content);
 		li.appendChild(button);
-		
+
 		return li;
 	}
 
@@ -90,22 +90,22 @@
 	function createToggleButton() {
 		const container = document.createElement('div');
 		container.className = 'mdc-segmented-control';
-		
+
 		const segmentedControl = document.createElement('segmented-control');
 		segmentedControl.setAttribute('data-catalyst', '');
-		
+
 		const ul = document.createElement('ul');
 		ul.setAttribute('aria-label', 'MDC view');
 		ul.setAttribute('role', 'list');
 		ul.setAttribute('data-view-component', 'true');
 		ul.className = 'SegmentedControl--small SegmentedControl';
-		
+
 		ul.appendChild(createButton(RENDERED_LABEL, 'rendered', true));
 		ul.appendChild(createButton(SOURCE_LABEL, 'source', false));
-		
+
 		segmentedControl.appendChild(ul);
 		container.appendChild(segmentedControl);
-		
+
 		return container;
 	}
 
@@ -117,7 +117,7 @@
 		const rendered = document.getElementById('mdc-rendered');
 		const original = document.querySelector('#read-only-cursor-text-area')?.closest('section');
 		const buttons = document.querySelectorAll('.mdc-segmented-control .SegmentedControl-item');
-		
+
 		if (!rendered || !original || buttons.length !== 2) return;
 
 		const [renderedItem, sourceItem] = buttons;
@@ -125,13 +125,13 @@
 		const sourceButton = sourceItem.querySelector('button');
 
 		const isRenderedMode = mode === 'rendered';
-		
+
 		rendered.style.display = isRenderedMode ? 'block' : 'none';
 		original.style.display = isRenderedMode ? 'none' : 'block';
-		
+
 		renderedItem.classList.toggle('SegmentedControl-item--selected', isRenderedMode);
 		sourceItem.classList.toggle('SegmentedControl-item--selected', !isRenderedMode);
-		
+
 		if (renderedButton) renderedButton.setAttribute('aria-current', isRenderedMode.toString());
 		if (sourceButton) sourceButton.setAttribute('aria-current', (!isRenderedMode).toString());
 	}
@@ -180,6 +180,9 @@
 			toolbar.insertBefore(createToggleButton(), toolbar.firstChild);
 		}
 
+		// Ensure toggle reflects actual display state (always rendered initially)
+		setViewMode('rendered');
+
 		DEBUG && console.log('[mdc-lite] Successfully rendered MDC');
 		return true;
 	}
@@ -190,7 +193,7 @@
 	function cleanup() {
 		document.getElementById('mdc-rendered')?.remove();
 		document.querySelector('.mdc-segmented-control')?.remove();
-		
+
 		const original = document.querySelector('#read-only-cursor-text-area')?.closest('section');
 		if (original) original.style.display = 'block';
 
@@ -236,13 +239,13 @@
 			if (!isActive) {
 				DEBUG && console.log('[mdc-lite] MDC file detected:', location.href);
 				isActive = true;
-				
+
 				if (renderMDC()) {
 					setupTextareaObserver();
 				} else {
 					// Content not ready yet - retry with exponential backoff would be better, but keeping simple
 					let attempts = 0;
-					
+
 					const interval = setInterval(() => {
 						attempts++;
 						if (renderMDC()) {
@@ -255,7 +258,10 @@
 					}, RENDER_RETRY_INTERVAL);
 				}
 			} else {
-				setupTextareaObserver();
+				// SPA navigation to another MDC file - re-render to sync toggle state
+				if (renderMDC()) {
+					setupTextareaObserver();
+				}
 			}
 		} else if (isActive) {
 			cleanup();
