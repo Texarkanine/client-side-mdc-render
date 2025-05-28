@@ -15,19 +15,24 @@
 	'use strict';
 
 	const DEBUG = true;
+
 	const MDC_FILE_REGEX = /^https:\/\/github\.com\/.*\.mdc$/;
 	const YAML_FRONTMATTER_REGEX = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
+
 	const RENDERED_LABEL = 'MD🠯';
 	const SOURCE_LABEL = '.mdc';
+
 	const MAX_RENDER_ATTEMPTS = 50;
 	const RENDER_RETRY_INTERVAL = 100;
+
+	const RENDERED_ID = 'client-side-mdc-markdown';
 
 	let currentUrl = location.href;
 	let isActive = false;
 	let textareaObserver = null;
 
 	GM_addStyle(`
-		.markdown-body {
+		#client-side-mdc-markdown {
 			box-sizing: border-box;
 			min-width: 200px;
 			max-width: 980px;
@@ -115,7 +120,7 @@
 	 * @param {'rendered'|'source'} mode - View mode to activate
 	 */
 	function setViewMode(mode) {
-		const rendered = document.getElementById('mdc-rendered');
+		const rendered = document.getElementById(RENDERED_ID);
 		const original = document.querySelector('#read-only-cursor-text-area')?.closest('section');
 		const buttons = document.querySelectorAll('.mdc-segmented-control .SegmentedControl-item');
 
@@ -154,12 +159,12 @@
 			return false;
 		}
 
-		const existing = document.getElementById('mdc-rendered');
+		const existing = document.getElementById(RENDERED_ID);
 		existing?.remove();
 
 		const processedContent = processContent(content);
 		const rendered = document.createElement('div');
-		rendered.id = 'mdc-rendered';
+		rendered.id = RENDERED_ID;
 		rendered.className = 'markdown-body';
 		rendered.innerHTML = marked.parse(processedContent);
 
@@ -192,7 +197,7 @@
 	 * Removes all MDC-related elements and restores original state
 	 */
 	function cleanup() {
-		document.getElementById('mdc-rendered')?.remove();
+		document.getElementById(RENDERED_ID)?.remove();
 		document.querySelector('.mdc-segmented-control')?.remove();
 
 		const original = document.querySelector('#read-only-cursor-text-area')?.closest('section');
