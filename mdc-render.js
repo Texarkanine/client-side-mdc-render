@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cursor Rule Markdown Renderer for GitHub
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/texarkanine
 // @version      2025-05-27
-// @description  Renders Cursor Rules (*.mdc) markdown on GitHub into actual Markdown locally, using the marked library.
+// @description  Renders Cursor Rules (*.mdc) markdown on GitHub into actual Markdown locally, using the marked library + highlight.js.
 // @author       Texarkanine
 // @match        https://github.com/*
 // @icon         data:image/png;base64,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
@@ -14,190 +14,283 @@
 (function() {
 	'use strict';
 
-	// Set to true to enable debug logging
-	const DEBUG = false;
-
-	// GitHub uses these specific selectors for file content display
-	const CONTENT_SECTION = 'section';
-	const MARKDOWN_SOURCE = '#read-only-cursor-text-area';
-
-	// Only process .mdc files on GitHub
+	const DEBUG = true;
 	const MDC_FILE_REGEX = /^https:\/\/github\.com\/.*\.mdc$/;
-
-	// Cursor rules have YAML frontmatter that needs special handling
 	const YAML_FRONTMATTER_REGEX = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
+	const RENDERED_LABEL = 'MD🠯';
+	const SOURCE_LABEL = '.mdc';
+	const MAX_RENDER_ATTEMPTS = 50;
+	const RENDER_RETRY_INTERVAL = 100;
 
-	// GitHub-compatible markdown styles using GitHub's CSS variables for theme compatibility
-	const MARKDOWN_CSS = `
+	let currentUrl = location.href;
+	let isActive = false;
+	let textareaObserver = null;
+
+	GM_addStyle(`
 		.markdown-body {
 			box-sizing: border-box;
 			min-width: 200px;
 			max-width: 980px;
-			margin: 0 auto;
+			margin: 24px auto 0;
 			padding: 45px;
 			word-wrap: break-word;
 		}
-	`;
-
-	let cssInjected = false;
+	`);
 
 	/**
-	 * Processes .mdc content by wrapping YAML frontmatter in code blocks.
-	 * This is necessary because cursor rules use YAML frontmatter that should
-	 * be displayed as code rather than parsed as markdown.
+	 * Processes MDC content by extracting YAML frontmatter and converting it to a code block
+	 * @param {string} content - Raw MDC file content
+	 * @returns {string} Processed content with YAML frontmatter as code block
 	 */
-	function processContent(rawContent) {
-		const match = rawContent.match(YAML_FRONTMATTER_REGEX);
-
+	function processContent(content) {
+		const match = content.match(YAML_FRONTMATTER_REGEX);
 		if (match) {
 			const [, yamlContent, markdownContent] = match;
 			return `\`\`\`yaml\n${yamlContent}\n\`\`\`\n\n${markdownContent}`;
 		}
-
-		return rawContent;
+		return content;
 	}
 
 	/**
-	 * Injects GitHub-compatible markdown styles.
-	 * Uses GitHub's CSS variables to match the current theme automatically.
+	 * Creates a button element with GitHub's styling
+	 * @param {string} label - Button text content
+	 * @param {string} mode - View mode ('rendered' or 'source')
+	 * @param {boolean} isSelected - Whether button should be in selected state
+	 * @returns {HTMLLIElement} Complete button list item element
 	 */
-	function injectStyles() {
-		if (cssInjected) return;
+	function createButton(label, mode, isSelected = false) {
+		const li = document.createElement('li');
+		li.className = `SegmentedControl-item${isSelected ? ' SegmentedControl-item--selected' : ''}`;
+		li.setAttribute('role', 'listitem');
 
-		GM_addStyle(MARKDOWN_CSS);
-		cssInjected = true;
+		const button = document.createElement('button');
+		button.setAttribute('aria-current', isSelected.toString());
+		button.setAttribute('type', 'button');
+		button.setAttribute('data-view-component', 'true');
+		button.className = 'Button--invisible Button--small Button Button--invisible-noVisuals';
+		button.onclick = () => setViewMode(mode);
+
+		const content = document.createElement('span');
+		content.className = 'Button-content';
+		const labelSpan = document.createElement('span');
+		labelSpan.className = 'Button-label';
+		labelSpan.setAttribute('data-content', label);
+		labelSpan.textContent = label;
+
+		content.appendChild(labelSpan);
+		button.appendChild(content);
+		li.appendChild(button);
+
+		return li;
 	}
 
 	/**
-	 * Renders the markdown content by replacing the section content.
-	 * Preserves the original textarea as hidden for potential future reference.
+	 * Creates a GitHub-styled segmented control for toggling between rendered and source views
+	 * @returns {HTMLDivElement} Complete toggle button control
 	 */
-	function renderMarkdown() {
-		const section = document.querySelector(CONTENT_SECTION);
-		const textarea = document.querySelector(MARKDOWN_SOURCE);
+	function createToggleButton() {
+		const container = document.createElement('div');
+		container.className = 'mdc-segmented-control';
 
-		if (!section || !textarea) {
+		const segmentedControl = document.createElement('segmented-control');
+		segmentedControl.setAttribute('data-catalyst', '');
+
+		const ul = document.createElement('ul');
+		ul.setAttribute('aria-label', 'MDC view');
+		ul.setAttribute('role', 'list');
+		ul.setAttribute('data-view-component', 'true');
+		ul.className = 'SegmentedControl--small SegmentedControl';
+
+		ul.appendChild(createButton(RENDERED_LABEL, 'rendered', true));
+		ul.appendChild(createButton(SOURCE_LABEL, 'source', false));
+
+		segmentedControl.appendChild(ul);
+		container.appendChild(segmentedControl);
+
+		return container;
+	}
+
+	/**
+	 * Switches between rendered markdown and source code views
+	 * @param {'rendered'|'source'} mode - View mode to activate
+	 */
+	function setViewMode(mode) {
+		const rendered = document.getElementById('mdc-rendered');
+		const original = document.querySelector('#read-only-cursor-text-area')?.closest('section');
+		const buttons = document.querySelectorAll('.mdc-segmented-control .SegmentedControl-item');
+
+		if (!rendered || !original || buttons.length !== 2) return;
+
+		const [renderedItem, sourceItem] = buttons;
+		const renderedButton = renderedItem.querySelector('button');
+		const sourceButton = sourceItem.querySelector('button');
+
+		const isRenderedMode = mode === 'rendered';
+
+		rendered.style.display = isRenderedMode ? 'block' : 'none';
+		original.style.display = isRenderedMode ? 'none' : 'block';
+
+		renderedItem.classList.toggle('SegmentedControl-item--selected', isRenderedMode);
+		sourceItem.classList.toggle('SegmentedControl-item--selected', !isRenderedMode);
+
+		if (renderedButton) renderedButton.setAttribute('aria-current', isRenderedMode.toString());
+		if (sourceButton) sourceButton.setAttribute('aria-current', (!isRenderedMode).toString());
+	}
+
+	/**
+	 * Renders MDC content as HTML and inserts it into the page
+	 * @returns {boolean} True if rendering was successful, false otherwise
+	 */
+	function renderMDC() {
+		const textarea = document.querySelector('#read-only-cursor-text-area');
+		if (!textarea) {
+			DEBUG && console.log('[mdc-lite] No textarea found');
 			return false;
 		}
 
-		const rawContent = textarea.textContent;
-		if (!rawContent) {
+		const content = textarea.textContent?.trim();
+		if (!content) {
+			DEBUG && console.log('[mdc-lite] No content in textarea');
 			return false;
 		}
 
-		// Process content and render markdown
-		const processedContent = processContent(rawContent);
-		const markdownDiv = document.createElement('div');
-		markdownDiv.className = 'markdown-body';
-		markdownDiv.innerHTML = marked.parse(processedContent);
+		const existing = document.getElementById('mdc-rendered');
+		existing?.remove();
 
-		// Syntax highlight code blocks using highlight.js
-		markdownDiv.querySelectorAll('pre code[class^="language-"]').forEach(block => {
+		const processedContent = processContent(content);
+		const rendered = document.createElement('div');
+		rendered.id = 'mdc-rendered';
+		rendered.className = 'markdown-body';
+		rendered.innerHTML = marked.parse(processedContent);
+
+		rendered.querySelectorAll('pre code').forEach(block => {
 			hljs.highlightElement(block);
 		});
-		DEBUG && console.log('[mdc-render] highlight.js applied to code blocks');
 
-		// Replace section content while preserving the original textarea
-		section.innerHTML = '';
-		textarea.style.display = 'none'; // Keep textarea but hide it
-		section.appendChild(textarea);
-		section.appendChild(markdownDiv);
+		const section = textarea.closest('section');
+		if (!section?.parentElement) {
+			DEBUG && console.log('[mdc-lite] Could not find section to insert rendered content');
+			return false;
+		}
 
-		injectStyles();
+		section.parentElement.insertBefore(rendered, section);
+		section.style.display = 'none';
+
+		const toolbar = document.querySelector('.react-blob-header-edit-and-raw-actions');
+		if (toolbar && !toolbar.querySelector('.mdc-segmented-control')) {
+			toolbar.insertBefore(createToggleButton(), toolbar.firstChild);
+		}
+
+		// Ensure toggle reflects actual display state (always rendered initially)
+		setViewMode('rendered');
+
+		DEBUG && console.log('[mdc-lite] Successfully rendered MDC');
 		return true;
 	}
 
-	let contentObserver = null;
-	let lastContent = '';
+	/**
+	 * Removes all MDC-related elements and restores original state
+	 */
+	function cleanup() {
+		document.getElementById('mdc-rendered')?.remove();
+		document.querySelector('.mdc-segmented-control')?.remove();
+
+		const original = document.querySelector('#read-only-cursor-text-area')?.closest('section');
+		if (original) original.style.display = 'block';
+
+		if (textareaObserver) {
+			textareaObserver.disconnect();
+			textareaObserver = null;
+		}
+
+		isActive = false;
+		DEBUG && console.log('[mdc-lite] Cleaned up');
+	}
 
 	/**
-	 * Sets up observation of the textarea content changes.
-	 * This ensures we only render when the actual content changes, not stale content.
+	 * Sets up a MutationObserver to watch for textarea content changes and re-render accordingly
+	 * @returns {boolean} True if observer was successfully set up, false otherwise
 	 */
-	function observeContentChanges() {
-		// Clean up any existing observer
-		if (contentObserver) {
-			contentObserver.disconnect();
-			contentObserver = null;
-		}
+	function setupTextareaObserver() {
+		const textarea = document.querySelector('#read-only-cursor-text-area');
+		if (!textarea) return false;
 
-		const textarea = document.querySelector(MARKDOWN_SOURCE);
-		if (!textarea) {
-			return false;
-		}
+		textareaObserver?.disconnect();
 
-		// Check if content is different from last render
-		const currentContent = textarea.textContent;
-		if (currentContent && currentContent !== lastContent) {
-			lastContent = currentContent;
-			if (renderMarkdown()) {
-				DEBUG && console.log('[mdc-render] Successfully rendered markdown');
-			}
-		}
-
-		// Set up observer for future content changes
-		contentObserver = new MutationObserver(() => {
-			const newContent = textarea.textContent;
-			if (newContent && newContent !== lastContent) {
-				lastContent = newContent;
-				if (renderMarkdown()) {
-					DEBUG && console.log('[mdc-render] Content changed, re-rendered markdown');
-				}
-			}
+		textareaObserver = new MutationObserver(() => {
+			DEBUG && console.log('[mdc-lite] Textarea content changed, re-rendering');
+			renderMDC();
 		});
 
-		// Observe changes to the textarea's text content
-		contentObserver.observe(textarea, {
+		textareaObserver.observe(textarea, {
 			childList: true,
 			subtree: true,
 			characterData: true
 		});
 
+		DEBUG && console.log('[mdc-lite] Textarea observer set up');
 		return true;
 	}
 
 	/**
-	 * Waits for the textarea to appear, then sets up content observation.
-	 * GitHub loads content asynchronously, so we need to wait for the textarea.
+	 * Handles page navigation changes, activating or deactivating MDC rendering based on URL
 	 */
-	function waitForTextareaAndObserve() {
-		let attempts = 0;
-		const maxAttempts = 100; // 10 seconds at 100ms intervals
+	function handlePageChange() {
+		if (MDC_FILE_REGEX.test(location.href)) {
+			if (!isActive) {
+				DEBUG && console.log('[mdc-lite] MDC file detected:', location.href);
+				isActive = true;
 
-		const checkInterval = setInterval(() => {
-			attempts++;
+				if (renderMDC()) {
+					setupTextareaObserver();
+				} else {
+					// Content not ready yet - retry with exponential backoff would be better, but keeping simple
+					let attempts = 0;
 
-			if (observeContentChanges()) {
-				clearInterval(checkInterval);
-				DEBUG && console.log('[mdc-render] Set up content observation');
-			} else if (attempts >= maxAttempts) {
-				clearInterval(checkInterval);
-				DEBUG && console.log('[mdc-render] Timeout waiting for textarea');
+					const interval = setInterval(() => {
+						attempts++;
+						if (renderMDC()) {
+							clearInterval(interval);
+							setupTextareaObserver();
+						} else if (attempts >= MAX_RENDER_ATTEMPTS) {
+							clearInterval(interval);
+							DEBUG && console.log('[mdc-lite] Timeout waiting for content');
+						}
+					}, RENDER_RETRY_INTERVAL);
+				}
+			} else {
+				// SPA navigation to another MDC file - re-render to sync toggle state
+				if (renderMDC()) {
+					setupTextareaObserver();
+				}
 			}
-		}, 100);
+		} else if (isActive) {
+			cleanup();
+		}
 	}
 
 	/**
-	 * Handles URL changes to detect navigation to .mdc files.
-	 * GitHub is a SPA, so we need to monitor URL changes via DOM mutations.
+	 * Initializes the userscript by setting up page change detection and handling the current page
 	 */
-	function handleUrlChange() {
-		if (MDC_FILE_REGEX.test(location.href)) {
-			DEBUG && console.log('[mdc-render] MDC file detected:', location.href);
-			waitForTextareaAndObserve();
-		}
+	function init() {
+		handlePageChange();
+
+		// Monitor for SPA navigation changes
+		new MutationObserver(() => {
+			if (location.href !== currentUrl) {
+				currentUrl = location.href;
+				DEBUG && console.log('[mdc-lite] Navigation detected:', currentUrl);
+				handlePageChange();
+			}
+		}).observe(document, { subtree: true, childList: true });
+
+		DEBUG && console.log('[mdc-lite] Initialized');
 	}
 
-	// Initialize: handle current page and set up URL change detection
-	let currentUrl = location.href;
-	handleUrlChange();
-
-	// Monitor for URL changes in GitHub's SPA
-	new MutationObserver(() => {
-		if (location.href !== currentUrl) {
-			currentUrl = location.href;
-			handleUrlChange();
-		}
-	}).observe(document, { subtree: true, childList: true });
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', init);
+	} else {
+		init();
+	}
 
 })();
