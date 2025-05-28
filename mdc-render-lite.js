@@ -16,6 +16,10 @@
 	const DEBUG = true;
 	const MDC_FILE_REGEX = /^https:\/\/github\.com\/.*\.mdc$/;
 	const YAML_FRONTMATTER_REGEX = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
+	
+	// Toggle button labels
+	const RENDERED_LABEL = 'MD🠯';
+	const SOURCE_LABEL = '.mdc';
 
 	// Simple state
 	let currentUrl = location.href;
@@ -32,18 +36,6 @@
 			padding: 45px;
 			word-wrap: break-word;
 		}
-		.mdc-toggle {
-			margin-right: 8px;
-			padding: 5px 10px;
-			background: #f6f8fa;
-			border: 1px solid #d0d7de;
-			border-radius: 6px;
-			cursor: pointer;
-		}
-		.mdc-toggle.active {
-			background: #0969da;
-			color: white;
-		}
 	`);
 
 	function processContent(content) {
@@ -56,31 +48,104 @@
 	}
 
 	function createToggleButton() {
-		const button = document.createElement('button');
-		button.textContent = 'M↓';
-		button.className = 'mdc-toggle active';
-		button.title = 'Toggle MDC rendering';
-		button.onclick = toggleView;
-		return button;
+		// Create segmented control container
+		const container = document.createElement('div');
+		container.className = 'mdc-segmented-control';
+		
+		const segmentedControl = document.createElement('segmented-control');
+		segmentedControl.setAttribute('data-catalyst', '');
+		
+		const ul = document.createElement('ul');
+		ul.setAttribute('aria-label', 'MDC view');
+		ul.setAttribute('role', 'list');
+		ul.setAttribute('data-view-component', 'true');
+		ul.className = 'SegmentedControl--small SegmentedControl';
+		
+		// Create "MD↓" button (rendered view)
+		const renderedLi = document.createElement('li');
+		renderedLi.className = 'SegmentedControl-item SegmentedControl-item--selected';
+		renderedLi.setAttribute('role', 'listitem');
+		
+		const renderedButton = document.createElement('button');
+		renderedButton.setAttribute('aria-current', 'true');
+		renderedButton.setAttribute('type', 'button');
+		renderedButton.setAttribute('data-view-component', 'true');
+		renderedButton.className = 'Button--invisible Button--small Button Button--invisible-noVisuals';
+		renderedButton.onclick = () => setViewMode('rendered');
+		
+		const renderedContent = document.createElement('span');
+		renderedContent.className = 'Button-content';
+		const renderedLabel = document.createElement('span');
+		renderedLabel.className = 'Button-label';
+		renderedLabel.setAttribute('data-content', RENDERED_LABEL);
+		renderedLabel.textContent = RENDERED_LABEL;
+		
+		renderedContent.appendChild(renderedLabel);
+		renderedButton.appendChild(renderedContent);
+		renderedLi.appendChild(renderedButton);
+		
+		// Create ".mdc" button (source view)
+		const sourceLi = document.createElement('li');
+		sourceLi.className = 'SegmentedControl-item';
+		sourceLi.setAttribute('role', 'listitem');
+		
+		const sourceButton = document.createElement('button');
+		sourceButton.setAttribute('aria-current', 'false');
+		sourceButton.setAttribute('type', 'button');
+		sourceButton.setAttribute('data-view-component', 'true');
+		sourceButton.className = 'Button--invisible Button--small Button Button--invisible-noVisuals';
+		sourceButton.onclick = () => setViewMode('source');
+		
+		const sourceContent = document.createElement('span');
+		sourceContent.className = 'Button-content';
+		const sourceLabel = document.createElement('span');
+		sourceLabel.className = 'Button-label';
+		sourceLabel.setAttribute('data-content', SOURCE_LABEL);
+		sourceLabel.textContent = SOURCE_LABEL;
+		
+		sourceContent.appendChild(sourceLabel);
+		sourceButton.appendChild(sourceContent);
+		sourceLi.appendChild(sourceButton);
+		
+		// Assemble the control
+		ul.appendChild(renderedLi);
+		ul.appendChild(sourceLi);
+		segmentedControl.appendChild(ul);
+		container.appendChild(segmentedControl);
+		
+		return container;
 	}
 
-	function toggleView() {
+	function setViewMode(mode) {
 		const rendered = document.getElementById('mdc-rendered');
 		const original = document.querySelector('#read-only-cursor-text-area')?.closest('section');
-		const button = document.querySelector('.mdc-toggle');
+		const renderedLi = document.querySelector('.mdc-segmented-control .SegmentedControl-item:first-child');
+		const sourceLi = document.querySelector('.mdc-segmented-control .SegmentedControl-item:last-child');
+		const renderedButton = renderedLi?.querySelector('button');
+		const sourceButton = sourceLi?.querySelector('button');
 
-		if (!rendered || !original || !button) return;
+		if (!rendered || !original || !renderedLi || !sourceLi) return;
 
-		if (rendered.style.display === 'none') {
-			// Show rendered
+		if (mode === 'rendered') {
+			// Show rendered markdown
 			rendered.style.display = 'block';
 			original.style.display = 'none';
-			button.classList.add('active');
+			
+			// Update button states
+			renderedLi.classList.add('SegmentedControl-item--selected');
+			sourceLi.classList.remove('SegmentedControl-item--selected');
+			if (renderedButton) renderedButton.setAttribute('aria-current', 'true');
+			if (sourceButton) sourceButton.setAttribute('aria-current', 'false');
 		} else {
-			// Show original
+			// Show original source
 			rendered.style.display = 'none';
 			original.style.display = 'block';
-			button.classList.remove('active');
+			
+			// Update button states
+			renderedLi.classList.remove('SegmentedControl-item--selected');
+			sourceLi.classList.add('SegmentedControl-item--selected');
+			if (renderedButton) renderedButton.setAttribute('aria-current', 'false');
+			if (sourceButton) sourceButton.setAttribute('aria-current', 'true');
 		}
 	}
 
@@ -119,9 +184,9 @@
 			section.parentElement.insertBefore(rendered, section);
 			section.style.display = 'none'; // Hide original
 
-			// Add toggle button to toolbar
+			// Add toggle control to toolbar
 			const toolbar = document.querySelector('.react-blob-header-edit-and-raw-actions');
-			if (toolbar && !toolbar.querySelector('.mdc-toggle')) {
+			if (toolbar && !toolbar.querySelector('.mdc-segmented-control')) {
 				toolbar.insertBefore(createToggleButton(), toolbar.firstChild);
 			}
 
@@ -135,11 +200,11 @@
 
 	function cleanup() {
 		const rendered = document.getElementById('mdc-rendered');
-		const button = document.querySelector('.mdc-toggle');
+		const control = document.querySelector('.mdc-segmented-control');
 		const original = document.querySelector('#read-only-cursor-text-area')?.closest('section');
 
 		if (rendered) rendered.remove();
-		if (button) button.remove();
+		if (control) control.remove();
 		if (original) original.style.display = 'block';
 
 		// Clean up textarea observer
