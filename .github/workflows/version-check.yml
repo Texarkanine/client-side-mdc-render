@@ -7,6 +7,7 @@ on:
 
 jobs:
   check-version-update:
+    name: "bumped"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
