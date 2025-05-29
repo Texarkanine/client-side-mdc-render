@@ -1,0 +1,37 @@
+name: Version Check
+
+on:
+  pull_request:
+    paths:
+      - 'mdc-render.js'
+
+jobs:
+  check-version-update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if version was updated
+        run: |
+          # Get the base branch (usually main or master)
+          BASE_BRANCH=${{ github.base_ref }}
+          
+          # Extract version from PR branch
+          PR_VERSION=$(grep -m 1 "// @version" mdc-render.js | sed -e 's/\/\/ @version\s*//')
+          echo "PR version: $PR_VERSION"
+          
+          # Extract version from base branch
+          git checkout $BASE_BRANCH
+          BASE_VERSION=$(grep -m 1 "// @version" mdc-render.js | sed -e 's/\/\/ @version\s*//')
+          echo "Base version: $BASE_VERSION"
+          
+          # Compare versions
+          if [ "$PR_VERSION" = "$BASE_VERSION" ]; then
+            echo "Error: mdc-render.js was modified but @version was not updated"
+            exit 1
+          else
+            echo "Success: @version was properly updated"
+          fi 
