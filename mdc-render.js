@@ -4,6 +4,7 @@
 // @version      1.2.5
 // @description  Renders Cursor Rules (*.mdc) markdown on GitHub into actual Markdown locally, using the marked library + highlight.js.
 // @author       Texarkanine
+// @licence      GPLv3
 // @homepageURL  https://github.com/texarkanine/client-side-mdc-render
 // @supportURL   https://github.com/texarkanine/client-side-mdc-render/issues
 // @match        https://github.com/*
