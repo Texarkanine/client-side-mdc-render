@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cursor Rule Markdown Renderer for GitHub
 // @namespace    https://github.com/texarkanine
-// @version      1.2.5
+// @version      1.3.0
 // @description  Renders Cursor Rules (*.mdc) markdown on GitHub into actual Markdown locally, using the marked library + highlight.js.
 // @author       Texarkanine
 // @licence      GPLv3
