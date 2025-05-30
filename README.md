@@ -15,6 +15,7 @@ There will be a little toggle button in the top right of the page that allows yo
 ## Notes
 
 1. Uses the [marked](https://github.com/markedjs/marked) library to render the markdown, `@require`'d by *monkey from the CDN.
-    - this WILL add some overhead to your GitHub browsing experience.
+    - includes the [marked-footnote](https://github.com/bent10/marked-extensions/tree/main/packages/footnote) extension to render footnotes.
 2. Uses the [highlight.js](https://github.com/highlightjs/highlight.js) library to syntax highlight code blocks.
-3. Bakes in some CSS to make the markdown look like GitHub's default markdown (can't load it live because of GitHub's [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP))
+3. Bakes in some CSS to make the markdown look like GitHub's default markdown; may differ slightly from "normal" GitHub markdown.
+4. This **will** add some overhead to your GitHub browsing experience.
