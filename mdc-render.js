@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cursor Rule Markdown Renderer for GitHub
 // @namespace    https://github.com/texarkanine
-// @version      1.4.0
+// @version      1.5.0
 // @description  Renders Cursor Rules (*.mdc) markdown on GitHub into actual Markdown locally, using the marked library + highlight.js.
 // @author       Texarkanine
 // @licence      GPLv3
@@ -20,8 +20,13 @@
 
 	const DEBUG = true;
 
-	const MDC_FILE_REGEX = /^https:\/\/github\.com\/.*\.mdc$/;
+	// Updated regex to match .mdc files
+	const MDC_FILE_REGEX = /^https:\/\/github\.com\/.*\.mdc(#.*)?$/;
 	const YAML_FRONTMATTER_REGEX = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
+	
+	// Regex to detect specific anchor types
+	const LINE_NUMBER_ANCHOR_REGEX = /^#L\d+$/;
+	const FOOTNOTE_ANCHOR_REGEX = /^#footnote-/;
 
 	const RENDERED_LABEL = 'M⇩';
 	const SOURCE_LABEL = '.mdc';
@@ -45,6 +50,65 @@
 			word-wrap: break-word;
 		}
 	`);
+
+	/**
+	 * Gets the current anchor from the URL if present
+	 * @returns {string|null} The anchor part of the URL, or null if no anchor
+	 */
+	function getCurrentAnchor() {
+		const hashIndex = location.href.indexOf('#');
+		return hashIndex !== -1 ? location.href.substring(hashIndex) : null;
+	}
+
+	/**
+	 * Determines the default view mode based on the current anchor
+	 * @returns {'rendered'|'source'} The view mode to use
+	 */
+	function getDefaultViewMode() {
+		const anchor = getCurrentAnchor();
+		
+		if (!anchor) {
+			return 'rendered';
+		}
+		
+		// If it's a line number anchor, default to source mode
+		if (LINE_NUMBER_ANCHOR_REGEX.test(anchor)) {
+			return 'source';
+		}
+		
+		// If it's a footnote anchor, default to rendered mode
+		if (FOOTNOTE_ANCHOR_REGEX.test(anchor)) {
+			return 'rendered';
+		}
+		
+		// Default to rendered for all other anchors
+		return 'rendered';
+	}
+
+	/**
+	 * Scrolls to the current anchor if it exists
+	 * @param {string} mode - Current view mode ('rendered' or 'source')
+	 */
+	function scrollToAnchor(mode) {
+		const anchor = getCurrentAnchor();
+		if (!anchor) return;
+		
+		// For line number anchors in source mode, GitHub's native handling works
+		if (mode === 'source' && LINE_NUMBER_ANCHOR_REGEX.test(anchor)) {
+			return;
+		}
+		
+		// For footnote anchors in rendered mode, we need to handle scrolling
+		if (mode === 'rendered' && FOOTNOTE_ANCHOR_REGEX.test(anchor)) {
+			// Use setTimeout to ensure the DOM has updated
+			setTimeout(() => {
+				const targetElement = document.querySelector(anchor);
+				if (targetElement) {
+					targetElement.scrollIntoView();
+				}
+			}, 100);
+		}
+	}
 
 	/**
 	 * Processes MDC content by extracting YAML frontmatter and converting it to a code block
@@ -95,9 +159,10 @@
 
 	/**
 	 * Creates a GitHub-styled segmented control for toggling between rendered and source views
+	 * @param {string} defaultMode - The default view mode to select
 	 * @returns {HTMLDivElement} Complete toggle button control
 	 */
-	function createToggleButton() {
+	function createToggleButton(defaultMode = 'rendered') {
 		const container = document.createElement('div');
 		container.className = 'mdc-segmented-control';
 
@@ -110,8 +175,10 @@
 		ul.setAttribute('data-view-component', 'true');
 		ul.className = 'SegmentedControl--small SegmentedControl';
 
-		ul.appendChild(createButton(RENDERED_LABEL, 'rendered', true));
-		ul.appendChild(createButton(SOURCE_LABEL, 'source', false));
+		const isRenderedSelected = defaultMode === 'rendered';
+
+		ul.appendChild(createButton(RENDERED_LABEL, 'rendered', isRenderedSelected));
+		ul.appendChild(createButton(SOURCE_LABEL, 'source', !isRenderedSelected));
 
 		segmentedControl.appendChild(ul);
 		container.appendChild(segmentedControl);
@@ -144,13 +211,17 @@
 
 		if (renderedButton) renderedButton.setAttribute('aria-current', isRenderedMode.toString());
 		if (sourceButton) sourceButton.setAttribute('aria-current', (!isRenderedMode).toString());
+		
+		// Scroll to anchor if needed
+		scrollToAnchor(mode);
 	}
 
 	/**
 	 * Renders MDC content as HTML and inserts it into the page
+	 * @param {string} defaultMode - The default view mode to select ('rendered' or 'source')
 	 * @returns {boolean} True if rendering was successful, false otherwise
 	 */
-	function renderMDC() {
+	function renderMDC(defaultMode = 'rendered') {
 		const textarea = document.querySelector('#read-only-cursor-text-area');
 		if (!textarea) {
 			DEBUG && console.log('[mdc-lite] No textarea found');
@@ -183,17 +254,17 @@
 		}
 
 		section.parentElement.insertBefore(rendered, section);
-		section.style.display = 'none';
-
+		
+		// Always show toggle button, but set initial state based on defaultMode
 		const toolbar = document.querySelector('.react-blob-header-edit-and-raw-actions');
 		if (toolbar && !toolbar.querySelector('.mdc-segmented-control')) {
-			toolbar.insertBefore(createToggleButton(), toolbar.firstChild);
+			toolbar.insertBefore(createToggleButton(defaultMode), toolbar.firstChild);
 		}
 
-		// Ensure toggle reflects actual display state (always rendered initially)
-		setViewMode('rendered');
+		// Apply the default view mode
+		setViewMode(defaultMode);
 
-		DEBUG && console.log('[mdc-lite] Successfully rendered MDC');
+		DEBUG && console.log('[mdc-lite] Successfully rendered MDC with mode:', defaultMode);
 		return true;
 	}
 
@@ -228,7 +299,7 @@
 
 		textareaObserver = new MutationObserver(() => {
 			DEBUG && console.log('[mdc-lite] Textarea content changed, re-rendering');
-			renderMDC();
+			renderMDC(getDefaultViewMode());
 		});
 
 		textareaObserver.observe(textarea, {
@@ -249,8 +320,12 @@
 			if (!isActive) {
 				DEBUG && console.log('[mdc-lite] MDC file detected:', location.href);
 				isActive = true;
+				
+				// Determine the default view mode based on anchor
+				const defaultMode = getDefaultViewMode();
+				DEBUG && console.log('[mdc-lite] Default mode:', defaultMode);
 
-				if (renderMDC()) {
+				if (renderMDC(defaultMode)) {
 					setupTextareaObserver();
 				} else {
 					// Content not ready yet - retry with exponential backoff would be better, but keeping simple
@@ -258,7 +333,7 @@
 
 					const interval = setInterval(() => {
 						attempts++;
-						if (renderMDC()) {
+						if (renderMDC(defaultMode)) {
 							clearInterval(interval);
 							setupTextareaObserver();
 						} else if (attempts >= MAX_RENDER_ATTEMPTS) {
@@ -269,7 +344,8 @@
 				}
 			} else {
 				// SPA navigation to another MDC file - re-render to sync toggle state
-				if (renderMDC()) {
+				const defaultMode = getDefaultViewMode();
+				if (renderMDC(defaultMode)) {
 					setupTextareaObserver();
 				}
 			}
