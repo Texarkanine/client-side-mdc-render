@@ -4,7 +4,7 @@
 
 The project is a single self-contained userscript that augments GitHub file pages in-place. It detects whether the current URL points to an `.mdc` file, reads the existing page content from GitHub's read-only text area, transforms it (frontmatter extraction plus markdown rendering), and injects a rendered container adjacent to the original source section. A small segmented toggle controls which view is visible. Because GitHub behaves as a single-page app, the script relies on URL-change detection and idempotent cleanup/re-render cycles to avoid stale UI or duplicate controls.
 
-The load-bearing assumptions are GitHub DOM selectors (for file content and toolbar), URL shape for `.mdc` files and anchors, and availability of globally loaded rendering/highlighting libraries from userscript `@require` entries. If those assumptions drift, rendering can silently fail or degrade to source-only view.
+The load-bearing assumptions are GitHub DOM selectors (for file content and toolbar), URL shape for `.mdc` files and anchors, availability of globally loaded rendering/highlighting libraries from userscript `@require` entries, and GitHub's `--color-prettylights-syntax-*` CSS custom properties (from Primer Primitives) for syntax highlighting colors. If those assumptions drift, rendering can silently fail or degrade to source-only view; loss of the CSS variables specifically degrades to monochrome code blocks (functional but unstyled).
 
 ## Activation and Lifecycle Gating
 

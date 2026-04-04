@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cursor Rule Markdown Renderer for GitHub
 // @namespace    https://github.com/texarkanine
-// @version      1.6.1
+// @version      1.6.4
 // @description  Renders Cursor Rules (*.mdc) markdown on GitHub into actual Markdown locally, using the marked library + highlight.js.
 // @author       Texarkanine
 // @licence      GPLv3
@@ -63,6 +63,87 @@
 		.mdc-source-hidden {
 			display: none !important;
 		}
+		#client-side-mdc-markdown table.mdc-frontmatter-table {
+			display: table;
+			width: 100%;
+			max-width: 100%;
+			border-collapse: collapse;
+			margin: 0 0 16px;
+			font-size: 85%;
+			color: var(--fgColor-default, var(--color-fg-default, inherit));
+		}
+		#client-side-mdc-markdown table.mdc-frontmatter-table td {
+			border: 1px solid var(
+				--borderColor-default,
+				var(--color-border-default)
+			);
+			padding: 6px 13px;
+			vertical-align: top;
+		}
+		#client-side-mdc-markdown table.mdc-frontmatter-table td:first-child {
+			font-weight: 600;
+			width: 1%;
+			white-space: nowrap;
+			background-color: var(
+				--bgColor-muted,
+				var(--color-canvas-subtle)
+			);
+		}
+	`);
+
+	/**
+	 * Map highlight.js token classes to GitHub's Primer design-system variables.
+	 * These `--color-prettylights-syntax-*` properties are defined on every GitHub
+	 * page and automatically adapt to light, dark, and custom themes — no external
+	 * stylesheet fetch required.
+	 *
+	 * Mapping derived from the hljs "github" / "github-dark" themes cross-referenced
+	 * with Primer Primitives color definitions.
+	 */
+	GM_addStyle(`
+		#client-side-mdc-markdown pre code.hljs { display: block; overflow-x: auto; padding: 1em; }
+		#client-side-mdc-markdown code.hljs { padding: 3px 5px; }
+		#client-side-mdc-markdown .hljs { color: var(--color-prettylights-syntax-storage-modifier-import); }
+		#client-side-mdc-markdown .hljs-doctag,
+		#client-side-mdc-markdown .hljs-keyword,
+		#client-side-mdc-markdown .hljs-meta .hljs-keyword,
+		#client-side-mdc-markdown .hljs-template-tag,
+		#client-side-mdc-markdown .hljs-template-variable,
+		#client-side-mdc-markdown .hljs-type,
+		#client-side-mdc-markdown .hljs-variable.language_ { color: var(--color-prettylights-syntax-keyword); }
+		#client-side-mdc-markdown .hljs-title,
+		#client-side-mdc-markdown .hljs-title.class_,
+		#client-side-mdc-markdown .hljs-title.class_.inherited__,
+		#client-side-mdc-markdown .hljs-title.function_ { color: var(--color-prettylights-syntax-entity); }
+		#client-side-mdc-markdown .hljs-attr,
+		#client-side-mdc-markdown .hljs-attribute,
+		#client-side-mdc-markdown .hljs-literal,
+		#client-side-mdc-markdown .hljs-meta,
+		#client-side-mdc-markdown .hljs-number,
+		#client-side-mdc-markdown .hljs-operator,
+		#client-side-mdc-markdown .hljs-selector-attr,
+		#client-side-mdc-markdown .hljs-selector-class,
+		#client-side-mdc-markdown .hljs-selector-id,
+		#client-side-mdc-markdown .hljs-variable { color: var(--color-prettylights-syntax-constant); }
+		#client-side-mdc-markdown .hljs-meta .hljs-string,
+		#client-side-mdc-markdown .hljs-regexp { color: var(--color-prettylights-syntax-string-regexp); }
+		#client-side-mdc-markdown .hljs-string { color: var(--color-prettylights-syntax-string); }
+		#client-side-mdc-markdown .hljs-built_in,
+		#client-side-mdc-markdown .hljs-symbol { color: var(--color-prettylights-syntax-variable); }
+		#client-side-mdc-markdown .hljs-code,
+		#client-side-mdc-markdown .hljs-comment,
+		#client-side-mdc-markdown .hljs-formula { color: var(--color-prettylights-syntax-comment); }
+		#client-side-mdc-markdown .hljs-name,
+		#client-side-mdc-markdown .hljs-quote,
+		#client-side-mdc-markdown .hljs-selector-pseudo,
+		#client-side-mdc-markdown .hljs-selector-tag { color: var(--color-prettylights-syntax-entity-tag); }
+		#client-side-mdc-markdown .hljs-subst { color: var(--color-prettylights-syntax-storage-modifier-import); }
+		#client-side-mdc-markdown .hljs-section { color: var(--color-prettylights-syntax-markup-heading); font-weight: 700; }
+		#client-side-mdc-markdown .hljs-bullet { color: var(--color-prettylights-syntax-markup-list); }
+		#client-side-mdc-markdown .hljs-emphasis { color: var(--color-prettylights-syntax-markup-italic); font-style: italic; }
+		#client-side-mdc-markdown .hljs-strong { color: var(--color-prettylights-syntax-markup-bold); font-weight: 700; }
+		#client-side-mdc-markdown .hljs-addition { color: var(--color-prettylights-syntax-markup-inserted-text); background-color: var(--color-prettylights-syntax-markup-inserted-bg); }
+		#client-side-mdc-markdown .hljs-deletion { color: var(--color-prettylights-syntax-markup-deleted-text); background-color: var(--color-prettylights-syntax-markup-deleted-bg); }
 	`);
 
 	/**
@@ -125,15 +206,69 @@
 	}
 
 	/**
-	 * Processes MDC content by extracting YAML frontmatter and converting it to a code block
+	 * Duplicated from lib/frontmatter-table.js — keep in sync.
+	 * @param {string} text
+	 * @returns {string}
+	 */
+	function escapeHtmlCell(text) {
+		return text
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;');
+	}
+
+	/**
+	 * Duplicated from lib/frontmatter-table.js — keep in sync.
+	 * @param {string} yamlContent
+	 * @returns {string}
+	 */
+	function yamlFrontmatterBlockToTableHtml(yamlContent) {
+		const rowsHtml = [];
+		const lines = yamlContent.split(/\r?\n/);
+
+		for (const line of lines) {
+			const trimmed = line.trim();
+			if (!trimmed || trimmed.startsWith('#')) {
+				continue;
+			}
+
+			const colon = trimmed.indexOf(':');
+			if (colon === -1) {
+				const esc = escapeHtmlCell(trimmed);
+				rowsHtml.push(
+					`<tr><td colspan="2">${esc}</td></tr>`,
+				);
+				continue;
+			}
+
+			const key = trimmed.slice(0, colon).trim();
+			const value = trimmed.slice(colon + 1).trim();
+			rowsHtml.push(
+				`<tr><td>${escapeHtmlCell(key)}</td><td>${escapeHtmlCell(
+					value,
+				)}</td></tr>`,
+			);
+		}
+
+		return `<table class="mdc-frontmatter-table"><tbody>${rowsHtml.join(
+			'',
+		)}</tbody></table>`;
+	}
+
+	/**
+	 * Extracts YAML frontmatter and replaces it with a headerless two-column HTML table.
+	 * Raw `key | value` markdown is not parsed as a GFM table by marked without a
+	 * separator row; HTML matches the usual metadata preview and renders consistently.
 	 * @param {string} content - Raw MDC file content
-	 * @returns {string} Processed content with YAML frontmatter as code block
+	 * @returns {string} Markdown body prefixed with frontmatter table HTML
 	 */
 	function processContent(content) {
 		const match = content.match(YAML_FRONTMATTER_REGEX);
 		if (match) {
 			const [, yamlContent, markdownContent] = match;
-			return `\`\`\`yaml\n${yamlContent}\n\`\`\`\n\n${markdownContent}`;
+			const table = yamlFrontmatterBlockToTableHtml(yamlContent);
+			return `${table}\n\n${markdownContent}`;
 		}
 		return content;
 	}
@@ -434,7 +569,7 @@
 			if (!isActive) {
 				DEBUG && console.log('[mdc-lite] MDC file detected:', location.href);
 				isActive = true;
-				
+
 				// Determine the default view mode based on anchor
 				const defaultMode = getDefaultViewMode();
 				DEBUG && console.log('[mdc-lite] Default mode:', defaultMode);

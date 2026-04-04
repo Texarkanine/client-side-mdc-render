@@ -1,0 +1,6 @@
+{
+  "name": "client-side-mdc-render",
+  "private": true,
+  "description": "Userscript dev helpers (tests only; release artifact is mdc-render.js)",
+  "type": "module"
+}
