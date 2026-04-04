@@ -1,9 +1,0 @@
-PASS
-
-- KISS: three minimal changes, no new abstractions.
-- DRY: no duplication introduced; existing dual-removal pattern is intentional.
-- YAGNI: lastRenderedContent serves exactly one purpose.
-- Completeness: all three planned fixes implemented, no TODOs.
-- Regression: naming, conventions, and function contracts preserved.
-- Integrity: no debug artifacts, magic numbers, or placeholders.
-- Documentation: internal optimizations only; no user-facing docs affected.
