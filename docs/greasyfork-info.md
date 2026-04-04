@@ -17,4 +17,4 @@ There will be a little toggle button in the top right of the page that allows yo
 
 ## Example
 
-![Example](https://github.com/Texarkanine/client-side-mdc-render/raw/main/docs/mdc-example.png)
+![Example](https://github.com/Texarkanine/client-side-mdc-render/raw/main/docs/dark-mode-example.png)
