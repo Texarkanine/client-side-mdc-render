@@ -23,4 +23,4 @@ There will be a little toggle button in the top right of the page that allows yo
 
 ## Example
 
-![Example](./docs/dark-mode-example.png)
+![Example](./docs/dark-mode-example.gif)
