@@ -35,4 +35,4 @@ jobs:
             exit 1
           else
             echo "Success: @version was properly updated"
-          fi 
+          fi

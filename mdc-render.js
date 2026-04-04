@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cursor Rule Markdown Renderer for GitHub
 // @namespace    https://github.com/texarkanine
-// @version      1.5.0
+// @version      1.6.0
 // @description  Renders Cursor Rules (*.mdc) markdown on GitHub into actual Markdown locally, using the marked library + highlight.js.
 // @author       Texarkanine
 // @licence      GPLv3
@@ -10,6 +10,8 @@
 // @match        https://github.com/*
 // @icon         data:image/png;base64,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
 // @grant        GM_addStyle
+// @grant        GM_addElement
+// @grant        unsafeWindow
 // @require      https://cdn.jsdelivr.net/npm/marked@15/lib/marked.umd.min.js
 // @require      https://cdn.jsdelivr.net/npm/marked-footnote@1/dist/index.umd.min.js
 // @require      https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11/highlight.min.js
@@ -18,7 +20,8 @@
 (function() {
 	'use strict';
 
-	const DEBUG = true;
+	/** Set to `true` locally when troubleshooting; keep `false` for published releases. */
+	const DEBUG = false;
 
 	// Updated regex to match .mdc files
 	const MDC_FILE_REGEX = /^https:\/\/github\.com\/.*\.mdc(#.*)?$/;
@@ -34,11 +37,19 @@
 	const MAX_RENDER_ATTEMPTS = 50;
 	const RENDER_RETRY_INTERVAL = 100;
 
+	const MERMAID_CDN_URL = 'https://cdn.jsdelivr.net/npm/@mermaid-js/tiny@11/dist/mermaid.tiny.js';
+	const MERMAID_POLL_INTERVAL = 50;
+	const MERMAID_POLL_TIMEOUT = 15000;
+
 	const RENDERED_ID = 'client-side-mdc-markdown';
 
 	let currentUrl = location.href;
 	let isActive = false;
 	let textareaObserver = null;
+	let mermaidLoadPromise = null;
+	let lastRenderedContent = null;
+
+	marked.use(markedFootnote());
 
 	GM_addStyle(`
 		#client-side-mdc-markdown {
@@ -48,6 +59,9 @@
 			margin: 24px auto 0;
 			padding: 45px;
 			word-wrap: break-word;
+		}
+		.mdc-source-hidden {
+			display: none !important;
 		}
 	`);
 
@@ -122,6 +136,104 @@
 			return `\`\`\`yaml\n${yamlContent}\n\`\`\`\n\n${markdownContent}`;
 		}
 		return content;
+	}
+
+	/**
+	 * GM_addElement injects into the page world, so the global may only
+	 * be visible via unsafeWindow rather than the userscript sandbox's window.
+	 */
+	function getMermaidGlobal() {
+		return window.mermaid
+			|| (typeof unsafeWindow !== 'undefined' && unsafeWindow.mermaid)
+			|| undefined;
+	}
+
+	/**
+	 * Injects the Mermaid script via GM_addElement (bypasses page CSP) and
+	 * polls for the global to appear.
+	 * @returns {Promise<any>}
+	 */
+	function loadMermaid() {
+		const existing = getMermaidGlobal();
+		if (existing) {
+			DEBUG && console.log('[mdc-lite] Mermaid already loaded');
+			return Promise.resolve(existing);
+		}
+
+		if (mermaidLoadPromise) {
+			DEBUG && console.log('[mdc-lite] Mermaid load already in progress');
+			return mermaidLoadPromise;
+		}
+
+		mermaidLoadPromise = new Promise((resolve, reject) => {
+			if (typeof GM_addElement !== 'function') {
+				reject(new Error('GM_addElement unavailable — cannot lazy-load Mermaid'));
+				return;
+			}
+
+			DEBUG && console.log('[mdc-lite] Injecting Mermaid script via GM_addElement:', MERMAID_CDN_URL);
+			GM_addElement('script', { src: MERMAID_CDN_URL, type: 'text/javascript' });
+
+			let elapsed = 0;
+			const poll = setInterval(() => {
+				elapsed += MERMAID_POLL_INTERVAL;
+				const api = getMermaidGlobal();
+
+				if (api) {
+					clearInterval(poll);
+					DEBUG && console.log('[mdc-lite] Mermaid global detected after', elapsed, 'ms');
+					resolve(api);
+					return;
+				}
+
+				if (elapsed >= MERMAID_POLL_TIMEOUT) {
+					clearInterval(poll);
+					DEBUG && console.warn('[mdc-lite] Mermaid poll timed out — window.mermaid:', typeof window.mermaid,
+						', unsafeWindow.mermaid:', typeof (typeof unsafeWindow !== 'undefined' ? unsafeWindow.mermaid : 'N/A'));
+					reject(new Error(`Mermaid global not available after ${MERMAID_POLL_TIMEOUT}ms`));
+				}
+			}, MERMAID_POLL_INTERVAL);
+		}).catch(error => {
+			mermaidLoadPromise = null;
+			throw error;
+		});
+
+		return mermaidLoadPromise;
+	}
+
+	/**
+	 * Finds Mermaid code blocks in rendered HTML, converts them to Mermaid
+	 * containers, lazily loads the Mermaid runtime, and renders diagrams.
+	 * No-ops when no Mermaid blocks are present.
+	 * @param {HTMLElement} container - Rendered markdown container
+	 */
+	function renderMermaidBlocks(container) {
+		const codeBlocks = container.querySelectorAll('pre code.language-mermaid, pre code.lang-mermaid');
+		if (codeBlocks.length === 0) return;
+
+		DEBUG && console.log('[mdc-lite] Mermaid blocks found:', codeBlocks.length);
+
+		// Don't touch the DOM until mermaid is ready. The fenced code block
+		// (with hljs highlighting) is perfectly good content while we wait.
+		loadMermaid()
+			.then(mermaid => {
+				DEBUG && console.log('[mdc-lite] Mermaid loaded, rendering', codeBlocks.length, 'diagram(s)');
+				codeBlocks.forEach(codeNode => {
+					const pre = codeNode.closest('pre');
+					if (!pre) return;
+					const div = document.createElement('div');
+					div.className = 'mermaid';
+					div.textContent = codeNode.textContent || '';
+					pre.replaceWith(div);
+				});
+				return mermaid.run({ querySelector: '#' + RENDERED_ID + ' .mermaid' });
+			})
+			.then(() => {
+				DEBUG && console.log('[mdc-lite] Mermaid render complete');
+			})
+			.catch(error => {
+				DEBUG && console.warn('[mdc-lite] Mermaid render skipped:', error);
+			});
 	}
 
 	/**
@@ -204,7 +316,7 @@
 		const isRenderedMode = mode === 'rendered';
 
 		rendered.style.display = isRenderedMode ? 'block' : 'none';
-		original.style.display = isRenderedMode ? 'none' : 'block';
+		original.classList.toggle('mdc-source-hidden', isRenderedMode);
 
 		renderedItem.classList.toggle('SegmentedControl-item--selected', isRenderedMode);
 		sourceItem.classList.toggle('SegmentedControl-item--selected', !isRenderedMode);
@@ -224,7 +336,7 @@
 	function renderMDC(defaultMode = 'rendered') {
 		const textarea = document.querySelector('#read-only-cursor-text-area');
 		if (!textarea) {
-			DEBUG && console.log('[mdc-lite] No textarea found');
+			DEBUG && console.debug('[mdc-lite] Waiting for textarea mount');
 			return false;
 		}
 
@@ -234,14 +346,15 @@
 			return false;
 		}
 
-		const existing = document.getElementById(RENDERED_ID);
-		existing?.remove();
+		if (content === lastRenderedContent && document.getElementById(RENDERED_ID)) return true;
 
 		const processedContent = processContent(content);
 		const rendered = document.createElement('div');
 		rendered.id = RENDERED_ID;
 		rendered.className = 'markdown-body';
-		rendered.innerHTML = marked.use(markedFootnote()).parse(processedContent);
+		rendered.innerHTML = marked.parse(processedContent);
+
+		renderMermaidBlocks(rendered);
 
 		rendered.querySelectorAll('pre code').forEach(block => {
 			hljs.highlightElement(block);
@@ -253,7 +366,9 @@
 			return false;
 		}
 
+		document.getElementById(RENDERED_ID)?.remove();
 		section.parentElement.insertBefore(rendered, section);
+		lastRenderedContent = content;
 		
 		// Always show toggle button, but set initial state based on defaultMode
 		const toolbar = document.querySelector('.react-blob-header-edit-and-raw-actions');
@@ -274,9 +389,7 @@
 	function cleanup() {
 		document.getElementById(RENDERED_ID)?.remove();
 		document.querySelector('.mdc-segmented-control')?.remove();
-
-		const original = document.querySelector('#read-only-cursor-text-area')?.closest('section');
-		if (original) original.style.display = 'block';
+		document.querySelector('.mdc-source-hidden')?.classList.remove('mdc-source-hidden');
 
 		if (textareaObserver) {
 			textareaObserver.disconnect();
@@ -284,6 +397,7 @@
 		}
 
 		isActive = false;
+		lastRenderedContent = null;
 		DEBUG && console.log('[mdc-lite] Cleaned up');
 	}
 
