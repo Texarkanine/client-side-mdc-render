@@ -16,6 +16,7 @@ A browser userscript project that enhances GitHub `.mdc` file pages using client
 ## Testing Process
 
 - Validation is primarily functional/manual in the browser against real GitHub `.mdc` pages.
+- Extracted helpers under `lib/` are unit-tested with `node --test`.
 - Core behavior to verify after changes: activation gating by URL, render success/fallback behavior, toggle state transitions, anchor handling, and cleanup across SPA navigation.
 - Repository-level usage guidance and installation details live in `README.md`.
 

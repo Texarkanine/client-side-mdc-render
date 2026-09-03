@@ -18,6 +18,10 @@ Rendered output is inserted as a sibling to GitHub's existing source section and
 
 Initial render can fail when GitHub content has not mounted yet, so rendering retries at short intervals up to a max attempt threshold. Once active, a `MutationObserver` on the source textarea triggers re-renders to keep output synchronized with asynchronous page updates.
 
+## Userscript CSS Injection
+
+Do not call `GM_addStyle` as a bare required API. Greasemonkey 4 removed it and never added `GM.addStyle`. Inject CSS through `injectCss()` (grant-first, then a page-DOM `<style>` element). Keep `@grant GM_addStyle` so Tampermonkey still uses the sandbox path. GitHub's `style-src` allows `'unsafe-inline'`, which is why the DOM fallback works here.
+
 ## Anchor-Aware Default Mode
 
 Default mode selection is pattern-based: line anchors prefer source mode and footnote anchors prefer rendered mode. This reconciles GitHub-native line navigation with generated rendered footnote navigation and avoids forcing one mode for all anchor types.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cursor Rule Markdown Renderer for GitHub
 // @namespace    https://github.com/texarkanine
-// @version      1.6.4
+// @version      1.6.5
 // @description  Renders Cursor Rules (*.mdc) markdown on GitHub into actual Markdown locally, using the marked library + highlight.js.
 // @author       Texarkanine
 // @licence      GPLv3
@@ -51,7 +51,22 @@
 
 	marked.use(markedFootnote());
 
-	GM_addStyle(`
+	/**
+	 * Duplicated from lib/gm-compat.js — keep in sync.
+	 * Greasemonkey 4 removed GM_addStyle and never added GM.addStyle.
+	 * @param {string} css
+	 */
+	function injectCss(css) {
+		if (typeof GM_addStyle === 'function') {
+			return GM_addStyle(css);
+		}
+		const style = document.createElement('style');
+		style.textContent = css;
+		(document.head || document.documentElement).appendChild(style);
+		return style;
+	}
+
+	injectCss(`
 		#client-side-mdc-markdown {
 			box-sizing: border-box;
 			min-width: 200px;
@@ -100,7 +115,7 @@
 	 * Mapping derived from the hljs "github" / "github-dark" themes cross-referenced
 	 * with Primer Primitives color definitions.
 	 */
-	GM_addStyle(`
+	injectCss(`
 		#client-side-mdc-markdown pre code.hljs { display: block; overflow-x: auto; padding: 1em; }
 		#client-side-mdc-markdown code.hljs { padding: 3px 5px; }
 		#client-side-mdc-markdown .hljs { color: var(--color-prettylights-syntax-storage-modifier-import); }
